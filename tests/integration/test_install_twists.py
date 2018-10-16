@@ -13,15 +13,10 @@ from flaky import flaky
 @pytest.mark.extras
 @pytest.mark.install
 @pytest.mark.local
-@pytest.mark.parametrize(
-    "line, pipfile",
-    [["-e .[dev]", {"testpipenv": {"path": ".", "editable": True, "extras": ["dev"]}}]],
-)
-def test_local_extras_install(PipenvInstance, pypi, line, pipfile):
+def test_local_extras_install(PipenvInstance, pypi):
     """Ensure -e .[extras] installs.
     """
     with PipenvInstance(pypi=pypi, chdir=True) as p:
-        project = Project()
         setup_py = os.path.join(p.path, "setup.py")
         with open(setup_py, "w") as fh:
             contents = """
@@ -40,7 +35,17 @@ zip_safe=False
 )
             """.strip()
             fh.write(contents)
-        project.write_toml({"packages": pipfile, "dev-packages": {}})
+        line = "-e .[dev]"
+        # pipfile = {"testpipenv": {"path": ".", "editable": True, "extras": ["dev"]}}
+        project = Project()
+        with open(os.path.join(p.path, 'Pipfile'), 'w') as fh:
+            fh.write("""
+[packages]
+testpipenv = {path = ".", editable = true, extras = ["dev"]}
+
+[dev-packages]
+            """.strip())
+        # project.write_toml({"packages": pipfile, "dev-packages": {}})
         c = p.pipenv("install")
         assert c.return_code == 0
         assert "testpipenv" in p.lockfile["default"]
@@ -55,6 +60,66 @@ zip_safe=False
         assert p.pipfile["packages"]["testpipenv"]["path"] == "."
         assert p.pipfile["packages"]["testpipenv"]["extras"] == ["dev"]
         assert "six" in p.lockfile["default"]
+
+
+@pytest.mark.install
+@pytest.mark.local
+@pytest.mark.needs_internet
+@flaky
+class TestDependencyLinks(object):
+    """Ensure dependency_links are parsed and installed.
+
+    This is needed for private repo dependencies.
+    """
+
+    @staticmethod
+    def helper_dependency_links_install_make_setup(pipenv_instance, deplink):
+        setup_py = os.path.join(pipenv_instance.path, "setup.py")
+        with open(setup_py, "w") as fh:
+            contents = """
+from setuptools import setup
+
+setup(
+    name='testdeplinks',
+    version='0.1',
+    packages=[],
+    install_requires=[
+        'test-private-dependency'
+    ],
+    dependency_links=[
+        '{0}'
+    ]
+)
+            """.strip().format(deplink)
+            fh.write(contents)
+
+    @staticmethod
+    def helper_dependency_links_install_test(pipenv_instance, deplink):
+        TestDependencyLinks.helper_dependency_links_install_make_setup(pipenv_instance, deplink)
+        c = pipenv_instance.pipenv("install -v -e .")
+        assert c.return_code == 0
+        assert "test-private-dependency" in pipenv_instance.lockfile["default"]
+        assert "version" in pipenv_instance.lockfile["default"]["test-private-dependency"]
+        assert "0.1" in pipenv_instance.lockfile["default"]["test-private-dependency"]["version"]
+
+    def test_https_dependency_links_install(self, PipenvInstance, pypi):
+        """Ensure dependency_links are parsed and installed (needed for private repo dependencies).
+        """
+        with temp_environ(), PipenvInstance(pypi=pypi, chdir=True) as p:
+            os.environ['PIP_PROCESS_DEPENDENCY_LINKS'] = '1'
+            TestDependencyLinks.helper_dependency_links_install_test(
+                p,
+                'git+https://github.com/atzannes/test-private-dependency@v0.1#egg=test-private-dependency-v0.1'
+            )
+
+    @pytest.mark.needs_github_ssh
+    def test_ssh_dependency_links_install(self, PipenvInstance, pypi):
+        with temp_environ(), PipenvInstance(pypi=pypi, chdir=True) as p:
+            os.environ['PIP_PROCESS_DEPENDENCY_LINKS'] = '1'
+            TestDependencyLinks.helper_dependency_links_install_test(
+                p,
+                'git+ssh://git@github.com/atzannes/test-private-dependency@v0.1#egg=test-private-dependency-v0.1'
+            )
 
 
 @pytest.mark.e
@@ -150,9 +215,10 @@ Requests = "==2.14.0"   # Inline comment
         c = p.pipenv("install python_DateUtil")
         assert c.return_code == 0
         assert "python-dateutil" in p.pipfile["packages"]
-        contents = open(p.pipfile_path).read()
-        assert "# Pre comment" in contents
-        assert "# Inline comment" in contents
+        with open(p.pipfile_path) as f:
+            contents = f.read()
+            assert "# Pre comment" in contents
+            assert "# Inline comment" in contents
 
 
 @pytest.mark.files

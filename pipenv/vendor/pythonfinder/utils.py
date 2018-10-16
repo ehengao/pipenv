@@ -1,22 +1,28 @@
 # -*- coding=utf-8 -*-
-from __future__ import print_function, absolute_import
-import attr
+from __future__ import absolute_import, print_function
+
 import locale
 import os
-import six
 import subprocess
 import sys
+
 from fnmatch import fnmatch
-from .exceptions import InvalidPythonVersion
 from itertools import chain
 
-try:
-    from pathlib import Path
-except ImportError:
-    from pathlib2 import Path
+import attr
+import six
+
+import vistir
+
+from .exceptions import InvalidPythonVersion
 
 
-PYTHON_IMPLEMENTATIONS = ("python", "ironpython", "jython", "pypy")
+PYTHON_IMPLEMENTATIONS = (
+    "python", "ironpython", "jython", "pypy", "anaconda", "miniconda",
+    "stackless", "activepython"
+)
+RULES_BASE = ["*{0}", "*{0}?", "*{0}?.?", "*{0}?.?m"]
+RULES = [rule.format(impl) for impl in PYTHON_IMPLEMENTATIONS for rule in RULES_BASE]
 
 KNOWN_EXTS = {"exe", "py", "fish", "sh", ""}
 KNOWN_EXTS = KNOWN_EXTS | set(
@@ -24,30 +30,16 @@ KNOWN_EXTS = KNOWN_EXTS | set(
 )
 
 
-def _run(cmd):
-    """Use `subprocess.check_output` to get the output of a command and decode it.
-
-    :param list cmd: A list representing the command you want to run.
-    :returns: A 2-tuple of (output, error)
-    """
-    encoding = locale.getdefaultlocale()[1] or "utf-8"
-    c = subprocess.Popen(
-        cmd, env=os.environ.copy(), stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    out, err = c.communicate()
-    return out.decode(encoding).strip(), err.decode(encoding).strip()
-
-
 def get_python_version(path):
     """Get python version string using subprocess from a given path."""
     version_cmd = [path, "-c", "import sys; print(sys.version.split()[0])"]
     try:
-        out, _ = _run(version_cmd)
+        out, _ = vistir.misc.run(version_cmd, block=True, nospin=True)
     except OSError:
         raise InvalidPythonVersion("%s is not a valid python path" % path)
     if not out:
         raise InvalidPythonVersion("%s is not a valid python path" % path)
-    return out
+    return out.strip()
 
 
 def optional_instance_of(cls):
@@ -55,7 +47,7 @@ def optional_instance_of(cls):
 
 
 def path_and_exists(path):
-    return attr.validators.instance_of(Path) and path.exists()
+    return attr.validators.instance_of(vistir.compat.Path) and path.exists()
 
 
 def path_is_executable(path):
@@ -71,9 +63,8 @@ def path_is_known_executable(path):
 
 
 def looks_like_python(name):
-    rules = ["*python", "*python?", "*python?.?", "*python?.?m"]
     match_rules = []
-    for rule in rules:
+    for rule in RULES:
         match_rules.extend(
             [
                 "{0}.{1}".format(rule, ext) if ext else "{0}".format(rule)
@@ -98,9 +89,9 @@ def ensure_path(path):
     :rtype: :class:`~pathlib.Path`
     """
 
-    if isinstance(path, Path):
+    if isinstance(path, vistir.compat.Path):
         path = path.as_posix()
-    path = Path(os.path.expandvars(path))
+    path = vistir.compat.Path(os.path.expandvars(path))
     try:
         path = path.resolve()
     except OSError:
@@ -116,25 +107,11 @@ def _filter_none(k, v):
 
 def filter_pythons(path):
     """Return all valid pythons in a given path"""
-    if not isinstance(path, Path):
-        path = Path(str(path))
+    if not isinstance(path, vistir.compat.Path):
+        path = vistir.compat.Path(str(path))
     if not path.is_dir():
         return path if path_is_python(path) else None
     return filter(lambda x: path_is_python(x), path.iterdir())
-
-
-def fs_str(string):
-    """Encodes a string into the proper filesystem encoding
-
-    Borrowed from pip-tools
-    """
-    if isinstance(string, str):
-        return string
-    assert not isinstance(string, bytes)
-    return string.encode(_fs_encoding)
-
-
-_fs_encoding = sys.getfilesystemencoding() or sys.getdefaultencoding()
 
 
 def unnest(item):

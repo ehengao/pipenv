@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import attr
-import six
-from packaging.markers import Marker, InvalidMarker
-from .baserequirement import BaseRequirement
-from .utils import validate_markers, filter_none
+
+from packaging.markers import InvalidMarker, Marker
+
 from ..exceptions import RequirementError
+from .baserequirement import BaseRequirement
+from .utils import filter_none, validate_markers
 
 
 @attr.s
@@ -81,13 +82,13 @@ class PipenvMarkers(BaseRequirement):
         marker_strings = ["{0} {1}".format(k, pipfile[k]) for k in found_keys]
         if pipfile.get("markers"):
             marker_strings.append(pipfile.get("markers"))
-        markers = []
+        markers = set()
         for marker in marker_strings:
-            markers.append(marker)
-        marker = ''
+            markers.add(marker)
+        combined_marker = None
         try:
-            marker = cls.make_marker(" and ".join(markers))
+            combined_marker = cls.make_marker(" and ".join(sorted(markers)))
         except RequirementError:
             pass
         else:
-            return marker
+            return combined_marker

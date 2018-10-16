@@ -16,6 +16,9 @@ if six.PY2:
         pass
 
 
+HAS_WARNED_GITHUB = False
+
+
 def check_internet():
     try:
         # Kenneth represents the Internet LGTM.
@@ -40,13 +43,15 @@ def check_github_ssh():
         res = True if c.return_code == 1 else False
     except Exception:
         pass
-    if not res:
+    global HAS_WARNED_GITHUB
+    if not res and not HAS_WARNED_GITHUB:
         warnings.warn(
             'Cannot connect to GitHub via SSH', ResourceWarning
         )
         warnings.warn(
             'Will skip tests requiring SSH access to GitHub', ResourceWarning
         )
+        HAS_WARNED_GITHUB = True
     return res
 
 
@@ -116,6 +121,7 @@ class _PipenvInstance(object):
     def pipenv(self, cmd, block=True):
         if self.pipfile_path:
             os.environ['PIPENV_PIPFILE'] = self.pipfile_path
+        # a bit of a hack to make sure the virtualenv is created
 
         with TemporaryDirectory(prefix='pipenv-', suffix='-cache') as tempdir:
             os.environ['PIPENV_CACHE_DIR'] = tempdir.name
@@ -131,6 +137,8 @@ class _PipenvInstance(object):
             print('$ pipenv {0}'.format(cmd))
             print(c.out)
             print(c.err)
+            if c.return_code != 0:
+                print("Command failed...")
 
         # Where the action happens.
         return c

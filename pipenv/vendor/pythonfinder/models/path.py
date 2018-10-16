@@ -1,31 +1,28 @@
 # -*- coding=utf-8 -*-
-from __future__ import print_function, absolute_import
-import attr
+from __future__ import absolute_import, print_function
+
 import copy
 import operator
 import os
 import sys
+
 from collections import defaultdict
-from cached_property import cached_property
 from itertools import chain
-from . import BasePath
-from .python import PythonVersion
+
+import attr
+
+from cached_property import cached_property
+
+from vistir.compat import Path, fs_str
+
+from .mixins import BasePath
 from ..environment import PYENV_INSTALLED, PYENV_ROOT
 from ..exceptions import InvalidPythonVersion
 from ..utils import (
-    optional_instance_of,
-    filter_pythons,
-    path_is_known_executable,
-    looks_like_python,
-    ensure_path,
-    fs_str,
-    unnest,
+    ensure_path, filter_pythons, looks_like_python, optional_instance_of,
+    path_is_known_executable, unnest
 )
-
-try:
-    from pathlib import Path
-except ImportError:
-    from pathlib2 import Path
+from .python import PythonVersion
 
 
 @attr.s
@@ -40,6 +37,7 @@ class SystemPath(object):
     pyenv_finder = attr.ib(default=None, validator=optional_instance_of("PyenvPath"))
     system = attr.ib(default=False)
     _version_dict = attr.ib(default=attr.Factory(defaultdict))
+    ignore_unsupported = attr.ib(default=False)
 
     __finders = attr.ib(default=attr.Factory(dict))
 
@@ -132,7 +130,7 @@ class SystemPath(object):
             pyenv_index = self.path_order.index(last_pyenv)
         except ValueError:
             return
-        self.pyenv_finder = PyenvFinder.create(root=PYENV_ROOT)
+        self.pyenv_finder = PyenvFinder.create(root=PYENV_ROOT, ignore_unsupported=self.ignore_unsupported)
         # paths = (v.paths.values() for v in self.pyenv_finder.versions.values())
         root_paths = (
             p for path in self.pyenv_finder.expanded_paths for p in path if p.is_root
@@ -251,7 +249,7 @@ class SystemPath(object):
         if major and minor and patch:
             _tuple_pre = pre if pre is not None else False
             _tuple_dev = dev if dev is not None else False
-            version_tuple = (major, minor_, patch, _tuple_pre, _tuple_dev)
+            version_tuple = (major, minor, patch, _tuple_pre, _tuple_dev)
             version_tuple_pre = (major, minor, patch, True, False)
         if os.name == "nt" and self.windows_finder:
             windows_finder_version = sub_finder(self.windows_finder)
@@ -271,7 +269,7 @@ class SystemPath(object):
         return ver
 
     @classmethod
-    def create(cls, path=None, system=False, only_python=False, global_search=True):
+    def create(cls, path=None, system=False, only_python=False, global_search=True, ignore_unsupported=False):
         """Create a new :class:`pythonfinder.models.SystemPath` instance.
 
         :param path: Search path to prepend when searching, defaults to None
@@ -280,6 +278,8 @@ class SystemPath(object):
         :param system: bool, optional
         :param only_python: Whether to search only for python executables, defaults to False
         :param only_python: bool, optional
+        :param ignore_unsupported: Whether to ignore unsupported python versions, if False, an error is raised, defaults to True
+        :param ignore_unsupported: bool, optional
         :return: A new :class:`pythonfinder.models.SystemPath` instance.
         :rtype: :class:`pythonfinder.models.SystemPath`
         """
@@ -306,6 +306,7 @@ class SystemPath(object):
             only_python=only_python,
             system=system,
             global_search=global_search,
+            ignore_unsupported=ignore_unsupported,
         )
 
 

@@ -1,18 +1,20 @@
 # -*- coding=utf-8 -*-
-from __future__ import print_function, absolute_import
-import attr
+from __future__ import absolute_import, print_function
+
 import copy
-from collections import defaultdict
 import platform
-from packaging.version import parse as parse_version, Version
+
+from collections import defaultdict
+
+import attr
+
+from packaging.version import Version, LegacyVersion
+from packaging.version import parse as parse_version
+
 from ..environment import SYSTEM_ARCH
-from ..utils import _filter_none, optional_instance_of, get_python_version, ensure_path
-
-
-try:
-    from pathlib import Path
-except ImportError:
-    from pathlib2 import Path
+from ..utils import (
+    _filter_none, ensure_path, get_python_version, optional_instance_of
+)
 
 
 @attr.s
@@ -23,6 +25,7 @@ class PythonVersion(object):
     is_prerelease = attr.ib(default=False)
     is_postrelease = attr.ib(default=False)
     is_devrelease = attr.ib(default=False)
+    is_debug = attr.ib(default=False)
     version = attr.ib(default=None, validator=optional_instance_of(Version))
     architecture = attr.ib(default=None)
     comes_from = attr.ib(default=None)
@@ -31,7 +34,7 @@ class PythonVersion(object):
     @property
     def version_sort(self):
         """version_sort tuple for sorting against other instances of the same class.
-        
+
         Returns a tuple of the python version but includes a point for non-dev,
         and a point for non-prerelease versions.  So released versions will have 2 points
         for this value.  E.g. `(3, 6, 6, 2)` is a release, `(3, 6, 6, 1)` is a prerelease,
@@ -44,6 +47,8 @@ class PythonVersion(object):
             release_sort = 1
         elif self.is_devrelease:
             release_sort = 0
+        elif self.is_debug:
+            release_sort = 1
         return (self.major, self.minor, self.patch if self.patch else 0, release_sort)
 
     @property
@@ -60,10 +65,11 @@ class PythonVersion(object):
             self.patch,
             self.is_prerelease,
             self.is_devrelease,
+            self.is_debug
         )
 
     def matches(
-        self, major=None, minor=None, patch=None, pre=False, dev=False, arch=None
+        self, major=None, minor=None, patch=None, pre=False, dev=False, arch=None, debug=False
     ):
         if arch and arch.isdigit():
             arch = "{0}bit".format(arch)
@@ -74,6 +80,7 @@ class PythonVersion(object):
             and (pre is None or self.is_prerelease == pre)
             and (dev is None or self.is_devrelease == dev)
             and (arch is None or self.architecture == arch)
+            and (debug is None or self.is_debug == debug)
         )
 
     def as_major(self):
@@ -100,6 +107,10 @@ class PythonVersion(object):
         :rtype: dict.
         """
 
+        is_debug = False
+        if version.endswith("-debug"):
+            is_debug = True
+            version, _, _ = version.rpartition("-")
         try:
             version = parse_version(str(version))
         except TypeError:
@@ -123,6 +134,7 @@ class PythonVersion(object):
             "is_prerelease": version.is_prerelease,
             "is_postrelease": version.is_postrelease,
             "is_devrelease": version.is_devrelease,
+            "is_debug": is_debug,
             "version": version,
         }
 
@@ -204,7 +216,7 @@ class VersionMap(object):
     def add_entry(self, entry):
         version = entry.as_python
         if version:
-            entries = versions[version.version_tuple]
+            entries = self.versions[version.version_tuple]
             paths = {p.path for p in self.versions.get(version.version_tuple, [])}
             if entry.path not in paths:
                 self.versions[version.version_tuple].append(entry)
